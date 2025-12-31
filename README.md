@@ -1,12 +1,20 @@
 # ForIT Microsoft Graph
 
+[![npm version](https://img.shields.io/npm/v/@foritllc/microsoft-graph.svg)](https://www.npmjs.com/package/@foritllc/microsoft-graph)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A lean MCP (Model Context Protocol) server for raw Microsoft Graph API access with **multi-tenant account management**.
 
-> Fork of [@softeria/ms-365-mcp-server](https://github.com/Softeria/ms-365-mcp-server) - stripped down to essentials.
+## The Problem
 
-## Why This Fork?
+AI assistants using Microsoft Graph face two challenges:
 
-The original Softeria MCP exposes **37 specialized tools** (~12KB context). This fork exposes **7 tools** (~1KB context):
+1. **Context bloat** - Existing MCPs expose 30-40 specialized tools, consuming ~12KB of context per conversation
+2. **Multi-tenant friction** - Managing multiple Microsoft 365 accounts requires constant switching
+
+## The Solution
+
+**7 tools. ~1KB context. Direct tenant access.**
 
 | Tool | Description |
 |------|-------------|
@@ -14,36 +22,97 @@ The original Softeria MCP exposes **37 specialized tools** (~12KB context). This
 | `logout` | Log out from Microsoft account |
 | `verify-login` | Check authentication status |
 | `list-accounts` | List all cached Microsoft accounts |
-| `select-account` | Switch between accounts (multi-tenant) |
+| `select-account` | Switch default account |
 | `remove-account` | Remove an account from cache |
 | `graph-request` | **Execute any Graph API request** |
 
-## The `graph-request` Tool
+### Why This Approach?
 
-Instead of 30+ specialized tools for mail, calendar, users, etc., use one flexible tool:
+Instead of 30+ specialized tools like `list-mail-messages`, `create-calendar-event`, `get-user`, etc., we expose **one flexible tool** that can call any Graph API endpoint. The AI already knows the Graph API - it doesn't need hand-holding.
+
+**Before (Softeria, 37 tools):**
+```
+list-mail-messages, get-mail-message, send-mail, create-draft-email,
+list-calendar-events, create-calendar-event, get-calendar-event,
+list-users, get-user, get-current-user, list-calendars...
+```
+
+**After (ForIT, 1 tool):**
+```json
+{ "endpoint": "/me/messages", "queryParams": { "$top": "10" } }
+```
+
+### Multi-Tenant Without Switching
+
+The killer feature: **reference any account directly without switching**.
 
 ```json
 {
-  "endpoint": "/me/messages",
-  "method": "GET",
-  "queryParams": {
-    "$select": "subject,from,receivedDateTime",
-    "$top": "10"
+  "endpoint": "/me/calendar/events",
+  "accountId": "work-tenant-id"
+}
+```
+
+```json
+{
+  "endpoint": "/me/calendar/events",
+  "accountId": "personal-tenant-id"
+}
+```
+
+Query both tenants in the same conversation. No `select-account` dance required.
+
+---
+
+## Installation
+
+```bash
+npm install -g @foritllc/microsoft-graph
+```
+
+## Quick Start
+
+### With Claude Desktop / MCP Client
+
+```json
+{
+  "mcpServers": {
+    "graph": {
+      "command": "npx",
+      "args": ["-y", "@foritllc/microsoft-graph"]
+    }
   }
 }
 ```
+
+### Login to Multiple Tenants
+
+```bash
+# First tenant
+npx @foritllc/microsoft-graph --login
+
+# Second tenant (adds to cache)
+npx @foritllc/microsoft-graph --login
+
+# See all accounts
+npx @foritllc/microsoft-graph --list-accounts
+```
+
+---
+
+## The `graph-request` Tool
 
 ### Parameters
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `endpoint` | string | Graph API path (e.g., `/me`, `/users`, `/me/calendar/events`) |
-| `method` | enum | `GET`, `POST`, `PUT`, `PATCH`, `DELETE` |
+| `endpoint` | string | Graph API path (e.g., `/me`, `/users/{id}`, `/me/messages`) |
+| `method` | enum | `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (default: GET) |
 | `body` | object | Request body for POST/PUT/PATCH |
-| `queryParams` | object | OData query params (`$select`, `$filter`, `$top`, etc.) |
+| `queryParams` | object | OData params (`$select`, `$filter`, `$top`, `$orderby`, etc.) |
 | `headers` | object | Additional HTTP headers |
 | `apiVersion` | enum | `v1.0` (default) or `beta` |
-| `accountId` | string | Target specific account without switching (multi-tenant) |
+| `accountId` | string | Target specific tenant without switching |
 
 ### Examples
 
@@ -52,14 +121,15 @@ Instead of 30+ specialized tools for mail, calendar, users, etc., use one flexib
 { "endpoint": "/me" }
 ```
 
-**List emails with filter:**
+**List unread emails:**
 ```json
 {
   "endpoint": "/me/messages",
   "queryParams": {
     "$filter": "isRead eq false",
-    "$select": "subject,from",
-    "$top": "5"
+    "$select": "subject,from,receivedDateTime",
+    "$top": "10",
+    "$orderby": "receivedDateTime desc"
   }
 }
 ```
@@ -70,7 +140,7 @@ Instead of 30+ specialized tools for mail, calendar, users, etc., use one flexib
   "endpoint": "/me/calendar/events",
   "method": "POST",
   "body": {
-    "subject": "Team Meeting",
+    "subject": "Team Sync",
     "start": { "dateTime": "2025-01-15T10:00:00", "timeZone": "UTC" },
     "end": { "dateTime": "2025-01-15T11:00:00", "timeZone": "UTC" }
   }
@@ -85,73 +155,43 @@ Instead of 30+ specialized tools for mail, calendar, users, etc., use one flexib
 }
 ```
 
-**Query specific tenant (multi-account):**
+**Cross-tenant query:**
 ```json
 {
-  "endpoint": "/me",
-  "accountId": "abc123-def456-..."
-}
-```
-No need to switch accounts - just reference by ID!
-
-## Installation
-
-```bash
-npm install -g forit-microsoft-graph
-```
-
-## Usage
-
-### With Claude Desktop / MCP Client
-
-Add to your MCP config:
-
-```json
-{
-  "mcpServers": {
-    "microsoft-graph": {
-      "command": "npx",
-      "args": ["-y", "forit-microsoft-graph"]
-    }
-  }
+  "endpoint": "/me/drive/root/children",
+  "accountId": "client-tenant-abc123"
 }
 ```
 
-### Multi-Account Support
-
-```bash
-# Login to first account
-microsoft-graph-mcp --login
-
-# Login to second account (adds to cache)
-microsoft-graph-mcp --login
-
-# List accounts
-microsoft-graph-mcp --list-accounts
-
-# Select specific account
-microsoft-graph-mcp --select-account <account-id>
-```
+---
 
 ## Use With PnP CLI
 
-This MCP is designed to complement [PnP CLI for Microsoft 365](https://pnp.github.io/cli-microsoft365/):
+This MCP complements [PnP CLI for Microsoft 365](https://pnp.github.io/cli-microsoft365/):
 
-- **Microsoft Graph MCP**: Raw Graph API access, multi-account auth
-- **PnP CLI**: 500+ specialized commands for SharePoint, Teams, Power Platform
+| Use Case | Tool |
+|----------|------|
+| Raw Graph API calls | **ForIT Microsoft Graph** |
+| SharePoint, Teams, Power Platform | PnP CLI |
+| Multi-tenant management | **ForIT Microsoft Graph** |
+| Specialized admin commands | PnP CLI |
+
+---
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `MS365_MCP_CLIENT_ID` | Azure AD app client ID (optional, uses default) |
+| `MS365_MCP_CLIENT_ID` | Azure AD app client ID (optional) |
 | `MS365_MCP_CLIENT_SECRET` | Client secret for confidential apps |
 | `MS365_MCP_TENANT_ID` | Azure AD tenant ID (default: `common`) |
 
-## License
-
-MIT - Original work by [Softeria](https://github.com/Softeria/ms-365-mcp-server)
+---
 
 ## Credits
 
-This project is a fork of [@softeria/ms-365-mcp-server](https://github.com/Softeria/ms-365-mcp-server), modified to provide a leaner, raw-API-focused experience.
+Fork of [@softeria/ms-365-mcp-server](https://github.com/Softeria/ms-365-mcp-server), rebuilt with a different philosophy: less is more.
+
+## License
+
+MIT - See [LICENSE](LICENSE)

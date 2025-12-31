@@ -1,5 +1,5 @@
 {
-  "name": "forit-microsoft-graph",
+  "name": "@foritllc/microsoft-graph",
   "version": "1.0.0",
   "description": "Lean MCP for Microsoft Graph API with multi-tenant account management. 7 tools instead of 37. Fork of @softeria/ms-365-mcp-server.",
   "type": "module",
