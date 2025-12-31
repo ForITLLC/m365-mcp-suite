@@ -1,0 +1,79 @@
+{
+  "name": "forit-microsoft-graph",
+  "version": "1.0.0",
+  "description": "Lean MCP for Microsoft Graph API with multi-tenant account management. 7 tools instead of 37. Fork of @softeria/ms-365-mcp-server.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "microsoft-graph-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "generate": "node bin/generate-graph-client.mjs",
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx src/index.ts",
+    "dev:http": "tsx --watch src/index.ts --http 127.0.0.1:3000 -v",
+    "format": "prettier --write \"**/*.{ts,mts,js,mjs,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,mts,js,mjs,json,md}\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "verify": "npm run generate && npm run lint && npm run format:check && npm run build && npm run test",
+    "inspector": "npx @modelcontextprotocol/inspector tsx src/index.ts"
+  },
+  "keywords": [
+    "microsoft",
+    "365",
+    "mcp",
+    "server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^3.8.0",
+    "@modelcontextprotocol/sdk": "^1.25.0",
+    "@toon-format/toon": "^0.8.0",
+    "commander": "^11.1.0",
+    "dotenv": "^17.0.1",
+    "express": "^5.2.1",
+    "js-yaml": "^4.1.0",
+    "winston": "^3.17.0",
+    "zod": "^3.24.2"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.11.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^11.0.3",
+    "@semantic-release/npm": "^12.0.2",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.15",
+    "@typescript-eslint/eslint-plugin": "^8.38.0",
+    "@typescript-eslint/parser": "^8.38.0",
+    "eslint": "^9.31.0",
+    "globals": "^16.3.0",
+    "prettier": "^3.5.3",
+    "semantic-release": "^24.2.7",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BTForIT/forit-microsoft-graph.git"
+  },
+  "homepage": "https://github.com/BTForIT/forit-microsoft-graph#readme",
+  "bugs": {
+    "url": "https://github.com/BTForIT/forit-microsoft-graph/issues"
+  }
+}
