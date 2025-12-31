@@ -213,7 +213,13 @@ export function registerAuthTools(server: McpServer, authManager: AuthManager, g
   if (graphClient) {
     server.tool(
       'graph-request',
-      'Execute a raw Microsoft Graph API request. Supports any Graph API endpoint. Can target specific account without switching.',
+      `Execute a raw Microsoft Graph API request. Supports any Graph API endpoint. Can target specific account without switching.
+
+Documentation:
+- Graph API Reference: https://learn.microsoft.com/en-us/graph/api/overview
+- Common endpoints: /me, /users, /groups, /me/messages, /me/calendar/events, /me/drive
+- OData query params: $select, $filter, $top, $orderby, $expand, $count, $search
+- Permissions reference: https://learn.microsoft.com/en-us/graph/permissions-reference`,
       {
         endpoint: z.string().describe('The Graph API endpoint path (e.g., "/me", "/users", "/me/messages")'),
         method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET').describe('HTTP method'),
