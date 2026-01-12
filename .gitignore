@@ -155,3 +155,4 @@ CLAUDE.md
 
 # MCP configuration (contains sensitive keys)
 .mcp.json
+.account-metadata.json
