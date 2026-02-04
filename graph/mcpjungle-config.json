@@ -1,0 +1,11 @@
+{
+  "name": "microsoft-graph",
+  "description": "Microsoft Graph API - mail, calendar, OneDrive, users. Raw REST API access.",
+  "transport": "stdio",
+  "command": "node",
+  "args": ["/Users/benjaminwesleythomas/GitProjects/forit-m365-mcp-suite/graph/dist/index.js"],
+  "env": {
+    "HOME": "/Users/benjaminwesleythomas",
+    "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+  }
+}
