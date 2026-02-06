@@ -76,24 +76,32 @@ function findCliConnection(entry: ConnectionEntry, cliConnections: CliConnection
         if (match) return match;
     }
 
-    // Match by appId AND (tenant domain OR identityName domain)
-    // CLI stores tenant as "common" for multi-tenant apps, so we check identityName domain
-    return cliConnections.find(c => {
+    // Find ALL CLI connections matching this appId+tenant
+    const candidates = cliConnections.filter(c => {
         if (c.appId !== entry.appId) return false;
-
-        // Direct tenant match
         if (c.tenant === entry.tenant) return true;
-
-        // Multi-tenant app: check if identityName domain matches registry tenant
-        // e.g., identityName "B.Thomas@forit.io" should match tenant "forit.io"
+        // Multi-tenant app: check identityName domain
         if (c.identityName && entry.tenant) {
             const identityDomain = c.identityName.split('@')[1]?.toLowerCase();
-            const registryTenant = entry.tenant.toLowerCase();
-            if (identityDomain === registryTenant) return true;
+            if (identityDomain === entry.tenant.toLowerCase()) return true;
         }
-
         return false;
-    }) || null;
+    });
+
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+
+    // Multiple CLI connections for same appId+tenant (e.g. GA + Personal)
+    // Use expectedEmail to pick the right one
+    if (entry.expectedEmail) {
+        const emailMatch = candidates.find(c =>
+            c.identityName?.toLowerCase() === entry.expectedEmail!.toLowerCase()
+        );
+        if (emailMatch) return emailMatch;
+    }
+
+    // Fallback to first candidate
+    return candidates[0];
 }
 
 // List all connections with their status
@@ -382,7 +390,7 @@ export async function runCliCommand(command: string, connectionName: string): Pr
     let wrappedCommand = fullCommand;
     if (!cliConn.active) {
         // Only switch connections if needed
-        wrappedCommand = `m365 connection use "${cliConn.name}" > /dev/null 2>&1 && ${fullCommand}`;
+        wrappedCommand = `m365 connection use --name "${cliConn.name}" > /dev/null 2>&1 && ${fullCommand}`;
     }
 
     return new Promise((resolve, reject) => {
