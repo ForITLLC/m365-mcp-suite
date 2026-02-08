@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  m365-pool:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: m365-pool
+    restart: unless-stopped
+    ports:
+      - "${M365_POOL_PORT:-5200}:5200"
+    environment:
+      - M365_POOL_HOST=0.0.0.0
+      - M365_POOL_PORT=5200
+      - M365_POOL_LOG_LEVEL=${M365_POOL_LOG_LEVEL:-INFO}
+      - M365_TOKEN_DIR=/data/tokens
+      # 24 hours idle timeout (sessions survive overnight)
+      - M365_IDLE_TIMEOUT=86400
+    volumes:
+      # Mount connections config (read-only)
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      # Persist token caches across restarts
+      - m365-pool-tokens:/data/tokens
+      # Azure PowerShell token cache
+      - m365-pool-azure:/root/.Azure
+      # EXO/Teams/PnP token caches
+      - m365-pool-config:/root/.config
+      - m365-pool-local:/root/.local
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  m365-pool-tokens:
+    driver: local
+  m365-pool-azure:
+    driver: local
+  m365-pool-config:
+    driver: local
+  m365-pool-local:
+    driver: local

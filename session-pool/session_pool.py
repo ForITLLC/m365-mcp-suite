@@ -88,7 +88,7 @@ MODULES = {
     },
     "azure": {
         "name": "Azure PowerShell",
-        "connect_cmd": "Connect-AzAccount -UseDeviceAuthentication",
+        "connect_cmd": "Connect-AzAccount -UseDeviceAuthentication -TenantId {tenant_id}",
         "health_cmd": "(Get-AzContext) | Select-Object Name, Account | ConvertTo-Json",
         "health_pattern": r"(Name|Account)",
         "device_code_pattern": r"code\s+([A-Z0-9]{8,})",
@@ -554,6 +554,22 @@ class SessionPool:
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
+    def reset_connection(self, connection_name: str, module: str = None) -> Dict[str, Any]:
+        """Reset sessions for a connection. If module specified, reset only that session."""
+        with self.lock:
+            reset = []
+            to_remove = []
+            for session_id, session in self.sessions.items():
+                if session.connection_name == connection_name:
+                    if module and session.module != module:
+                        continue
+                    session.stop()
+                    to_remove.append(session_id)
+                    reset.append(session_id)
+            for sid in to_remove:
+                del self.sessions[sid]
+            return {"reset": reset, "count": len(reset)}
+
     def get_status(self) -> Dict[str, Any]:
         """Get status of all sessions."""
         with self.lock:
@@ -693,6 +709,21 @@ def run_command():
     if is_auth:
         metrics.record_auth()
     return jsonify(result)
+
+
+@app.route("/reset", methods=["POST"])
+def reset_connection():
+    """Reset (kill + remove) sessions for a specific connection."""
+    data = request.get_json()
+    connection = data.get("connection")
+    module = data.get("module")  # Optional: reset only one module
+
+    if not connection:
+        return jsonify({"status": "error", "error": "Missing connection parameter"}), 400
+
+    result = pool.reset_connection(connection, module)
+    logger.info(f"Reset connection {connection} (module={module}): {result}")
+    return jsonify({"status": "success", **result})
 
 
 @app.route("/metrics", methods=["GET"])

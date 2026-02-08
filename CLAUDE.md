@@ -1,63 +1,65 @@
-# M365 MCP Suite
+# Microsoft Master (MM)
 
 ## Architecture
-Six MCP servers sharing `~/.m365-connections.json` as the universal connection registry:
-- **pnp** - CLI for Microsoft 365 (SharePoint, Teams, Planner)
-- **graph** - Microsoft Graph REST API (mail, calendar, OneDrive)
-- **pwsh-manager** - PowerShell sessions in Docker (EXO, Azure, Teams, Power Platform)
-- **registry** - Connection management MCP
-- **m365-session-pool** - Isolated Docker session containers per connection
-- **mm-mcp** - Meeting minutes/transcription MCP
+One MCP server — `mm` — for ALL Microsoft operations.
+- **mm** - Microsoft Master (Exchange, SharePoint, Teams, Azure, Power Platform, Graph API)
+- Two tools: `mm__run` (PowerShell) and `mm__graph_request` (Graph REST API)
+- PowerShell backed by `session-pool/` — isolated Docker containers per connection
+- Graph backed by MSAL with per-connection token cache (`~/.mm-graph-tokens/`)
+- Connection registry: `~/.m365-connections.json` (READ-ONLY to MCPs)
+
+Old servers (pnp, graph, pwsh-manager, registry) are archived in `_archived/`.
 
 ## Connection Rules - NO DEFAULTS EVER
 - Universal registry: `~/.m365-connections.json`
-- Every command REQUIRES `connectionName` parameter
-- NEVER use the word "default" in any M365 MCP code
-- Connection = Account + AppId + Tenant + Description + mcps array
+- Every command REQUIRES `connection` parameter
+- NEVER use the word "default" in any MM code
+- Connection = Account + AppId + Tenant + Description
 - Connections: ForIT-GA, ForIT-Personal, Pivot, GreatNorth-GA, GreatNorth-Personal, WMA
 
 ## Authentication
-- ALWAYS use MCP login tools, NEVER Bash for M365 auth
-- `pnp-m365`: Use `pnp_login` tool (NOT `m365 login` via Bash)
-- `pwsh-manager`: Use `pwsh_login` tool (NOT raw PowerShell)
-- MCP tools format device codes prominently; Bash truncates them
+- ALWAYS use MM MCP tools, NEVER Bash for M365 auth
+- Both tools handle device codes and auth automatically
 - Display device codes as:
   ```
   **DEVICE CODE: XXXXXXXX**
   Go to: https://microsoft.com/devicelogin
   ```
 
-## M365 Session Pool (Docker)
+## MM Tools
+
+### `mm__run` — PowerShell via Session Pool
+- No params → list connections
+- `connection` + `module` + `command` → execute PowerShell
+- Modules: `exo` (Exchange), `pnp` (SharePoint), `azure`, `teams`
+
+### `mm__graph_request` — Microsoft Graph REST API
+- No params → list connections
+- `connection` + `endpoint` → GET request to Graph
+- `connection` + `endpoint` + `method` + `body` → any Graph operation
+- Supports `/v1.0/` and `/beta/` endpoints
+- OData noise stripped automatically
+- Token cache: `~/.mm-graph-tokens/` (per connection, MSAL)
+
+## Session Pool (Docker)
 - Each connection gets an isolated Docker container
 - Router on port 5200, individual containers on 5210-5215
-- `docker-compose.yml` manages the full stack
-- Health checks built in - containers report healthy when ready
-
-## Token Storage
-- M365_CLI_CONFIG_HOME controls where tokens are stored per connection
-- Each connection gets its own config directory to prevent token collision
-- Known issue: token storage path conflicts when multiple connections share a container
-
-## PnP CLI Notes
-- The PnP multi-tenant app was retired September 9, 2024
-- Custom Azure AD app registrations required for each tenant
-- See `docs/M365-CLI-SETUP.md` for app registration instructions
+- `session-pool/docker-compose.yml` manages the stack
+- Health checks built in
 
 ## Testing
 ```bash
 # Check all containers healthy
 docker ps --format "{{.Names}}\t{{.Status}}" | grep m365
 
-# Test a specific connection
-mcpjungle test pnp-m365 --tool m365_run_command --args '{"command":"m365 status","connectionName":"ForIT"}'
+# Test PowerShell
+mcpjungle invoke mm run '{"connection":"ForIT-GA","module":"exo","command":"Get-Mailbox -ResultSize 1"}'
+
+# Test Graph API
+mcpjungle invoke mm graph_request '{"connection":"ForIT-GA","endpoint":"/me"}'
 ```
 
 ## MCPJungle Registration
 ```bash
-mcpjungle register --conf graph/mcpjungle-config.json
-mcpjungle register --conf pnp/mcpjungle-config.json
-mcpjungle register --conf registry/mcpjungle-config.json
-mcpjungle register --conf pwsh-manager/mcpjungle-config.json
-mcpjungle register --conf m365-session-pool/mcpjungle-config.json
-mcpjungle register --conf mm-mcp/mcpjungle-config.json
+mcpjungle register --conf mm/mcpjungle-config.json
 ```

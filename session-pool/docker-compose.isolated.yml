@@ -1,0 +1,237 @@
+# Isolated containers - one per connection
+# Resource-tuned for Mac mini server (10-core, 32GB)
+# Router on 5200, connections on 5210+
+
+services:
+  router:
+    build:
+      context: .
+      dockerfile: Dockerfile.router
+    container_name: m365-router
+    restart: unless-stopped
+    ports:
+      - "5200:5200"
+    environment:
+      - ROUTER_HOST=0.0.0.0
+      - ROUTER_PORT=5200
+    volumes:
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - m365-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    depends_on:
+      - forit-ga
+      - forit-personal
+      - greatnorth-ga
+      - greatnorth-personal
+      - pivot
+      - wma
+
+  forit-ga:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: m365-forit-ga
+    restart: unless-stopped
+    ports:
+      - "5210:5200"
+    environment:
+      - M365_CONNECTION=ForIT-GA
+      - M365_POOL_PORT=5200
+    volumes:
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - m365-forit-ga-azure:/root/.Azure
+      - m365-forit-ga-config:/root/.config
+      - m365-forit-ga-local:/root/.local
+    networks:
+      - m365-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  forit-personal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: m365-forit-personal
+    restart: unless-stopped
+    ports:
+      - "5211:5200"
+    environment:
+      - M365_CONNECTION=ForIT-Personal
+      - M365_POOL_PORT=5200
+    volumes:
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - m365-forit-personal-azure:/root/.Azure
+      - m365-forit-personal-config:/root/.config
+      - m365-forit-personal-local:/root/.local
+    networks:
+      - m365-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  greatnorth-ga:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: m365-greatnorth-ga
+    restart: unless-stopped
+    ports:
+      - "5212:5200"
+    environment:
+      - M365_CONNECTION=GreatNorth-GA
+      - M365_POOL_PORT=5200
+    volumes:
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - m365-greatnorth-ga-azure:/root/.Azure
+      - m365-greatnorth-ga-config:/root/.config
+      - m365-greatnorth-ga-local:/root/.local
+    networks:
+      - m365-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  greatnorth-personal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: m365-greatnorth-personal
+    restart: unless-stopped
+    ports:
+      - "5213:5200"
+    environment:
+      - M365_CONNECTION=GreatNorth-Personal
+      - M365_POOL_PORT=5200
+    volumes:
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - m365-greatnorth-personal-azure:/root/.Azure
+      - m365-greatnorth-personal-config:/root/.config
+      - m365-greatnorth-personal-local:/root/.local
+    networks:
+      - m365-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  pivot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: m365-pivot
+    restart: unless-stopped
+    ports:
+      - "5214:5200"
+    environment:
+      - M365_CONNECTION=Pivot
+      - M365_POOL_PORT=5200
+    volumes:
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - m365-pivot-azure:/root/.Azure
+      - m365-pivot-config:/root/.config
+      - m365-pivot-local:/root/.local
+    networks:
+      - m365-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  wma:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: m365-wma
+    restart: unless-stopped
+    ports:
+      - "5215:5200"
+    environment:
+      - M365_CONNECTION=WMA
+      - M365_POOL_PORT=5200
+    volumes:
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - m365-wma-azure:/root/.Azure
+      - m365-wma-config:/root/.config
+      - m365-wma-local:/root/.local
+    networks:
+      - m365-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  m365-network:
+    driver: bridge
+
+volumes:
+  m365-forit-ga-azure:
+  m365-forit-ga-config:
+  m365-forit-ga-local:
+  m365-forit-personal-azure:
+  m365-forit-personal-config:
+  m365-forit-personal-local:
+  m365-greatnorth-ga-azure:
+  m365-greatnorth-ga-config:
+  m365-greatnorth-ga-local:
+  m365-greatnorth-personal-azure:
+  m365-greatnorth-personal-config:
+  m365-greatnorth-personal-local:
+  m365-pivot-azure:
+  m365-pivot-config:
+  m365-pivot-local:
+  m365-wma-azure:
+  m365-wma-config:
+  m365-wma-local:

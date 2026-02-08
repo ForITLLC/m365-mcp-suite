@@ -1,0 +1,44 @@
+# Unified mode - single container handles ALL connections
+# Lower memory footprint (~200MB vs ~800MB for isolated mode)
+# Use this on machines with limited RAM (8-16GB)
+#
+# For per-connection isolation, use docker-compose.isolated.yml instead
+# (recommended for shared/multi-user servers or machines with 32GB+ RAM)
+#
+# Usage:
+#   docker compose -p m365-session-pool -f docker-compose.unified.yml up -d
+#
+# Reset a connection without restarting:
+#   curl -X POST http://localhost:5200/reset -H 'Content-Type: application/json' \
+#     -d '{"connection": "ForIT-GA"}'
+
+services:
+  pool:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: m365-pool
+    restart: unless-stopped
+    ports:
+      - "5200:5200"
+    volumes:
+      - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - m365-pool-azure:/root/.Azure
+      - m365-pool-config:/root/.config
+      - m365-pool-local:/root/.local
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  m365-pool-azure:
+  m365-pool-config:
+  m365-pool-local:
