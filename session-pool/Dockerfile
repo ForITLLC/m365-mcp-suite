@@ -51,8 +51,8 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY session_pool.py .
 
-# Create data directory for token persistence
-RUN mkdir -p /data/tokens
+# Create data directories for token persistence and session state
+RUN mkdir -p /data/tokens /app/state
 
 # Expose HTTP API port
 EXPOSE 5200

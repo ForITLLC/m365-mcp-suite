@@ -564,6 +564,25 @@ def _handle_run(arguments: dict) -> list:
 
     status = result.get("status")
 
+    # Log full pool response for diagnostics
+    if status == "error":
+        log_tool_call(
+            mcp_name="mm", tool_name="run",
+            arguments={"connection": connection, "module": module, "command": command[:80]},
+            error=f"Pool error: {result.get('error', 'unknown')}",
+            duration_ms=0,
+        )
+    elif status == "success":
+        output_raw = result.get("output", "")
+        # Flag auth/permission errors buried in "successful" output
+        if re.search(r'(AADSTS\d+|Unauthorized|Forbidden|access.denied)', output_raw, re.IGNORECASE):
+            log_tool_call(
+                mcp_name="mm", tool_name="run",
+                arguments={"connection": connection, "module": module, "command": command[:80]},
+                error=f"Auth error in output: {output_raw[:300]}",
+                duration_ms=0,
+            )
+
     if status == "auth_required":
         device_code = result.get("device_code", "")
         return _format_device_code(device_code, connection, conn_config, f"Module: {module}")

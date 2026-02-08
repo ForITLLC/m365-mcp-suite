@@ -1,6 +1,33 @@
 # Isolated containers - one per connection
 # Resource-tuned for Mac mini server (10-core, 32GB)
 # Router on 5200, connections on 5210+
+#
+# Shared config defined once via x-connection-defaults anchor.
+# Each connection service merges it with <<: *connection-defaults.
+
+x-connection-defaults: &connection-defaults
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  networks:
+    - m365-network
+  deploy:
+    resources:
+      limits:
+        cpus: "0.5"
+        memory: 512M
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
+    interval: 60s
+    timeout: 10s
+    retries: 3
+    start_period: 60s
+
+x-connection-volumes: &connection-volumes
+  - ~/.m365-connections.json:/root/.m365-connections.json:ro
+  - ~/.m365-logs:/app/logs
+  - ~/.m365-state:/app/state
 
 services:
   router:
@@ -33,11 +60,8 @@ services:
       - wma
 
   forit-ga:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *connection-defaults
     container_name: m365-forit-ga
-    restart: unless-stopped
     ports:
       - "5210:5200"
     environment:
@@ -45,29 +69,15 @@ services:
       - M365_POOL_PORT=5200
     volumes:
       - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - ~/.m365-logs:/app/logs
+      - ~/.m365-state:/app/state
       - m365-forit-ga-azure:/root/.Azure
       - m365-forit-ga-config:/root/.config
       - m365-forit-ga-local:/root/.local
-    networks:
-      - m365-network
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
   forit-personal:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *connection-defaults
     container_name: m365-forit-personal
-    restart: unless-stopped
     ports:
       - "5211:5200"
     environment:
@@ -75,29 +85,15 @@ services:
       - M365_POOL_PORT=5200
     volumes:
       - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - ~/.m365-logs:/app/logs
+      - ~/.m365-state:/app/state
       - m365-forit-personal-azure:/root/.Azure
       - m365-forit-personal-config:/root/.config
       - m365-forit-personal-local:/root/.local
-    networks:
-      - m365-network
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
   greatnorth-ga:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *connection-defaults
     container_name: m365-greatnorth-ga
-    restart: unless-stopped
     ports:
       - "5212:5200"
     environment:
@@ -105,29 +101,15 @@ services:
       - M365_POOL_PORT=5200
     volumes:
       - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - ~/.m365-logs:/app/logs
+      - ~/.m365-state:/app/state
       - m365-greatnorth-ga-azure:/root/.Azure
       - m365-greatnorth-ga-config:/root/.config
       - m365-greatnorth-ga-local:/root/.local
-    networks:
-      - m365-network
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
   greatnorth-personal:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *connection-defaults
     container_name: m365-greatnorth-personal
-    restart: unless-stopped
     ports:
       - "5213:5200"
     environment:
@@ -135,29 +117,15 @@ services:
       - M365_POOL_PORT=5200
     volumes:
       - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - ~/.m365-logs:/app/logs
+      - ~/.m365-state:/app/state
       - m365-greatnorth-personal-azure:/root/.Azure
       - m365-greatnorth-personal-config:/root/.config
       - m365-greatnorth-personal-local:/root/.local
-    networks:
-      - m365-network
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
   pivot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *connection-defaults
     container_name: m365-pivot
-    restart: unless-stopped
     ports:
       - "5214:5200"
     environment:
@@ -165,29 +133,15 @@ services:
       - M365_POOL_PORT=5200
     volumes:
       - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - ~/.m365-logs:/app/logs
+      - ~/.m365-state:/app/state
       - m365-pivot-azure:/root/.Azure
       - m365-pivot-config:/root/.config
       - m365-pivot-local:/root/.local
-    networks:
-      - m365-network
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
   wma:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *connection-defaults
     container_name: m365-wma
-    restart: unless-stopped
     ports:
       - "5215:5200"
     environment:
@@ -195,22 +149,11 @@ services:
       - M365_POOL_PORT=5200
     volumes:
       - ~/.m365-connections.json:/root/.m365-connections.json:ro
+      - ~/.m365-logs:/app/logs
+      - ~/.m365-state:/app/state
       - m365-wma-azure:/root/.Azure
       - m365-wma-config:/root/.config
       - m365-wma-local:/root/.local
-    networks:
-      - m365-network
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
 networks:
   m365-network:

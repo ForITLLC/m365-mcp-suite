@@ -66,16 +66,36 @@ SINGLE_CONNECTION = os.getenv("M365_CONNECTION", "")
 LOG_LEVEL = os.getenv("SESSION_POOL_LOG_LEVEL", "INFO")
 COMMAND_TIMEOUT = int(os.getenv("COMMAND_TIMEOUT", "300"))
 
-# Logging
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL),
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
+# Logging — dual output: stdout (docker logs) + persistent file (/app/logs/)
+LOG_DIR = os.getenv("SESSION_POOL_LOG_DIR", "/app/logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
 logger = logging.getLogger("session_pool")
+logger.setLevel(getattr(logging, LOG_LEVEL))
+
+_log_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+# Console handler (captured by docker logs)
+_console = logging.StreamHandler()
+_console.setFormatter(_log_fmt)
+logger.addHandler(_console)
+
+# File handler (persists on host via volume mount)
+from logging.handlers import RotatingFileHandler
+_log_file = os.path.join(LOG_DIR, f"session-pool-{SINGLE_CONNECTION or 'unified'}.log")
+_file_handler = RotatingFileHandler(_log_file, maxBytes=10_000_000, backupCount=5)
+_file_handler.setFormatter(_log_fmt)
+logger.addHandler(_file_handler)
+
+logger.info(f"Logging to stdout + {_log_file}")
 
 # Connection registry
 REGISTRY_PATH = os.path.expanduser("~/.m365-connections.json")
+
+# Session state persistence — survives container restarts
+STATE_DIR = os.getenv("SESSION_POOL_STATE_DIR", "/app/state")
+os.makedirs(STATE_DIR, exist_ok=True)
+STATE_FILE = os.path.join(STATE_DIR, f"sessions-{SINGLE_CONNECTION or 'unified'}.json")
 
 # Module configurations - all use native device code
 MODULES = {
@@ -88,7 +108,8 @@ MODULES = {
     },
     "azure": {
         "name": "Azure PowerShell",
-        "connect_cmd": "Connect-AzAccount -UseDeviceAuthentication -TenantId {tenant_id}",
+        # Disable interactive subscription picker (Az.Accounts v2+ prompts for selection)
+        "connect_cmd": "Update-AzConfig -LoginExperienceV2 Off -ErrorAction SilentlyContinue | Out-Null; Connect-AzAccount -UseDeviceAuthentication -TenantId {tenant_id}",
         "health_cmd": "(Get-AzContext) | Select-Object Name, Account | ConvertTo-Json",
         "health_pattern": r"(Name|Account)",
         "device_code_pattern": r"code\s+([A-Z0-9]{8,})",
@@ -118,6 +139,55 @@ MODULES = {
     #     "device_code_pattern": r"code\s+([A-Z0-9]{8,})",
     # },
 }
+
+# Command guardrails — block commands that modify the container or escalate access
+# Two tiers: BLOCKED (hard reject) and WARNED (logged at WARNING, still executes)
+BLOCKED_PATTERNS = [
+    # Container integrity — no installing/removing modules inside the container
+    (r'\bInstall-Module\b', "Installing PowerShell modules modifies container state"),
+    (r'\bUninstall-Module\b', "Uninstalling PowerShell modules modifies container state"),
+    (r'\bUpdate-Module\b', "Updating PowerShell modules modifies container state"),
+    (r'\bInstall-Package\b', "Installing packages modifies container state"),
+    # Identity/access escalation
+    (r'\bNew-AzRoleAssignment\b', "Creating role assignments is an access escalation"),
+    (r'\bRemove-AzRoleAssignment\b', "Removing role assignments modifies access control"),
+    (r'\bSet-AzKeyVaultAccessPolicy\b', "Modifying Key Vault access policies is an access escalation"),
+    (r'\bRemove-AzKeyVaultAccessPolicy\b', "Removing Key Vault access policies modifies access control"),
+    (r'\bNew-AzADApplication\b', "Creating app registrations is an access escalation"),
+    (r'\bRemove-AzADApplication\b', "Deleting app registrations is destructive"),
+    (r'\bNew-AzADServicePrincipal\b', "Creating service principals is an access escalation"),
+    (r'\bRemove-AzADServicePrincipal\b', "Deleting service principals is destructive"),
+    # Raw token crafting — no hand-rolling OAuth requests
+    (r'Invoke-RestMethod.*login\.microsoftonline', "Direct OAuth token requests bypass auth guardrails"),
+    (r'Invoke-WebRequest.*login\.microsoftonline', "Direct OAuth token requests bypass auth guardrails"),
+]
+
+WARNED_PATTERNS = [
+    # Bulk deletions
+    (r'\bRemove-Az\w+\b', "Azure resource deletion"),
+    (r'\bRemove-Mailbox\b', "Mailbox deletion"),
+    (r'\bRemove-PnP\w+\b', "SharePoint resource deletion"),
+    (r'\bRemove-Team\b', "Teams deletion"),
+    # Forwarding rules (common attack vector)
+    (r'ForwardingSmtpAddress', "Mail forwarding modification"),
+    (r'Set-InboxRule.*Forward', "Inbox forwarding rule modification"),
+]
+
+
+def check_command_guardrails(command: str, session_id: str) -> Optional[str]:
+    """Check command against guardrails. Returns error message if blocked, None if allowed."""
+    for pattern, reason in BLOCKED_PATTERNS:
+        if re.search(pattern, command, re.IGNORECASE):
+            logger.warning(f"[{session_id}] BLOCKED command: {reason} | {command[:120]}")
+            return f"Command blocked: {reason}. This operation is not allowed through the session pool."
+
+    for pattern, reason in WARNED_PATTERNS:
+        if re.search(pattern, command, re.IGNORECASE):
+            logger.warning(f"[{session_id}] WARNED command: {reason} | {command[:120]}")
+            # Warned but not blocked — continues to execute
+
+    return None
+
 
 # Command marker for PowerShell output sync
 MARKER = "___M365_DONE___"
@@ -157,6 +227,7 @@ class Session:
     state: str = "initializing"  # initializing, ready, auth_pending, authenticated, error
     device_code: Optional[str] = None
     auth_initiated_by: Optional[str] = None
+    auth_started_at: float = 0.0
 
     # Identity
     authenticated_as: Optional[str] = None
@@ -164,6 +235,9 @@ class Session:
     # Tracking
     last_command: Optional[datetime] = None
     last_error: Optional[str] = None
+
+    # Callback when auth completes (set by pool for state persistence)
+    on_auth_complete: Optional[object] = None
 
     def __post_init__(self):
         self.process_lock = threading.Lock()
@@ -198,6 +272,24 @@ class Session:
             self._send_raw('$ErrorActionPreference = "Continue"')
             self._send_raw('function prompt { "" }')
 
+            # In unified mode, isolate Azure contexts to prevent cross-tenant contamination
+            # 1. Disable autosave so this process won't overwrite shared ~/.Azure
+            # 2. Select the correct context by matching the expected account email
+            if self.module == "azure" and not SINGLE_CONNECTION:
+                self._send_raw('Disable-AzContextAutosave -Scope Process -ErrorAction SilentlyContinue | Out-Null')
+                conn_config = get_connection_config(self.connection_name)
+                expected_email = conn_config.get("expectedEmail", "") if conn_config else ""
+                if expected_email:
+                    select_cmd = (
+                        f'$ctx = Get-AzContext -ListAvailable | Where-Object {{ $_.Account.Id -eq "{expected_email}" }} | Select-Object -First 1; '
+                        f'if ($ctx) {{ $ctx | Select-AzContext | Out-Null; Write-Host "Selected: $($ctx.Account.Id)" }} '
+                        f'else {{ Write-Host "No context found for {expected_email}" }}'
+                    )
+                    result = self._send_raw(select_cmd, timeout=15)
+                    logger.info(f"[{self.session_id}] Azure context isolation: {result.strip()}")
+                else:
+                    logger.info(f"[{self.session_id}] Azure context isolated (no expectedEmail to pin)")
+
             self.state = "ready"
             logger.info(f"[{self.session_id}] PowerShell started (PID: {self.process.pid})")
             return True
@@ -210,6 +302,8 @@ class Session:
 
     def _send_raw(self, command: str, timeout: int = 30) -> str:
         """Send command and read output until marker."""
+        import select
+
         if not self.process or self.process.poll() is not None:
             raise RuntimeError("Process not running")
 
@@ -224,8 +318,13 @@ class Session:
 
         while True:
             if time.time() - start > timeout:
-                logger.error(f"[{self.session_id}] Command timed out. Output so far: {output_lines[:5]}")
+                logger.error(f"[{self.session_id}] Command timed out after {timeout}s. Output so far: {output_lines[:5]}")
                 raise TimeoutError(f"Command timed out after {timeout}s")
+
+            # Use select to avoid blocking indefinitely on readline
+            ready, _, _ = select.select([self.process.stdout], [], [], 1.0)
+            if not ready:
+                continue  # No data yet, loop back to check timeout
 
             line = self.process.stdout.readline()
             if not line:
@@ -242,12 +341,20 @@ class Session:
         return '\n'.join(output_lines)
 
     def initiate_auth(self, caller_id: str) -> Dict[str, Any]:
-        """Start native device code authentication."""
+        """Start native device code authentication.
+
+        The auth reader thread owns stdout exclusively through the entire auth lifecycle:
+        1. Sends connect command, captures device code
+        2. Waits for auth completion (MARKER)
+        3. Runs health check to verify and transition to authenticated state
+        This avoids the non-thread-safe TextIOWrapper corruption from multiple readers.
+        """
         module_config = MODULES.get(self.module)
         conn_config = get_connection_config(self.connection_name)
 
         self.state = "auth_pending"
         self.auth_initiated_by = caller_id
+        self.auth_started_at = time.time()
         self.device_code = None
 
         try:
@@ -266,24 +373,19 @@ class Session:
             if module_config.get("use_pac"):
                 return self._initiate_pac_auth(connect_cmd, module_config)
 
-            # Start connect command in background thread to capture device code
             device_code = None
-            auth_complete = threading.Event()
             output_buffer = []
 
-            # Flag to signal reader thread to stop
-            stop_reader = threading.Event()
-            self._auth_stop_reader = stop_reader
-
             def reader_thread():
+                """Owns stdout exclusively: auth -> health check -> state transition."""
                 nonlocal device_code
                 try:
-                    # Send connect command with marker
+                    # Phase 1: Send connect command, capture device code, wait for auth
                     self.process.stdin.write(f'{connect_cmd}; Write-Host "{MARKER}"\n')
                     self.process.stdin.flush()
 
                     start = time.time()
-                    while time.time() - start < 120 and not stop_reader.is_set():
+                    while time.time() - start < 900:  # 15 min = device code lifetime
                         line = self.process.stdout.readline()
                         if not line:
                             time.sleep(0.1)
@@ -293,23 +395,67 @@ class Session:
                         output_buffer.append(line)
                         logger.info(f"[{self.session_id}] Auth output: {line[:100]}")
 
-                        # Look for device code
                         if not device_code:
-                            match = re.search(module_config["device_code_pattern"], line, re.IGNORECASE)
+                            # Strip ANSI escape codes before matching — Azure wraps output in color codes
+                            clean_line = re.sub(r'\x1b\[[\?0-9;]*[a-zA-Z]', '', line)
+                            match = re.search(module_config["device_code_pattern"], clean_line, re.IGNORECASE)
                             if match:
                                 device_code = match.group(1)
                                 self.device_code = device_code
                                 logger.info(f"[{self.session_id}] Device code: {device_code}")
 
-                        # Check for auth completion - MARKER means connect command finished
                         if MARKER in line:
-                            if device_code:  # Only after we've seen device code
-                                auth_complete.set()
-                                logger.info(f"[{self.session_id}] Auth connect completed")
+                            if device_code:
+                                logger.info(f"[{self.session_id}] Auth connect completed, running health check...")
                             break
 
+                    if not device_code:
+                        self.state = "error"
+                        self.last_error = "No device code / auth timed out"
+                        logger.error(f"[{self.session_id}] Auth reader exiting: no device code after {time.time()-start:.0f}s")
+                        return
+
+                    # Phase 2: Health check (still on this thread — exclusive stdout access)
+                    try:
+                        health_output = self._send_raw(module_config["health_cmd"], timeout=30)
+                        logger.info(f"[{self.session_id}] Post-auth health ({len(health_output)} chars): {health_output[:200]}")
+
+                        if re.search(module_config["health_pattern"], health_output):
+                            self.state = "authenticated"
+                            self.device_code = None
+                            self.auth_initiated_by = None
+
+                            # Extract identity — strip ANSI codes for JSON parsing
+                            clean = re.sub(r'\x1b\[[\?0-9;]*[a-zA-Z]', '', health_output).strip()
+                            try:
+                                data = json.loads(clean)
+                                if self.module == "exo":
+                                    self.authenticated_as = data.get("UserPrincipalName") or data.get("Organization")
+                                elif self.module == "azure":
+                                    acct = data.get("Account", {})
+                                    self.authenticated_as = acct.get("Id") if isinstance(acct, dict) else str(acct)
+                                elif self.module == "teams":
+                                    self.authenticated_as = data.get("DisplayName")
+                                elif self.module == "pnp":
+                                    self.authenticated_as = data.get("Url")
+                            except (json.JSONDecodeError, AttributeError) as e:
+                                logger.warning(f"[{self.session_id}] Could not parse health JSON: {e}")
+
+                            logger.info(f"[{self.session_id}] Auth completed! Identity: {self.authenticated_as}")
+
+                            # Notify pool to persist state
+                            if self.on_auth_complete:
+                                try:
+                                    self.on_auth_complete()
+                                except Exception as e:
+                                    logger.warning(f"[{self.session_id}] on_auth_complete callback failed: {e}")
+                        else:
+                            logger.warning(f"[{self.session_id}] Health pattern not matched, staying in auth_pending")
+                    except Exception as e:
+                        logger.error(f"[{self.session_id}] Post-auth health check failed: {e}")
+
                 except Exception as e:
-                    logger.error(f"[{self.session_id}] Reader error: {e}")
+                    logger.error(f"[{self.session_id}] Auth reader thread error: {e}")
 
             reader = threading.Thread(target=reader_thread, daemon=True)
             reader.start()
@@ -383,59 +529,17 @@ class Session:
             return {"status": "error", "error": str(e)}
 
     def check_auth_complete(self) -> bool:
-        """Check if authentication completed."""
-        module_config = MODULES.get(self.module)
+        """Check if the auth reader thread has transitioned state to authenticated.
 
-        if module_config.get("use_pac"):
+        The reader thread handles the full lifecycle (auth + health check + state transition).
+        This method just checks the result — no stdout access, no thread-safety issues.
+        """
+        if self.module and MODULES.get(self.module, {}).get("use_pac"):
             return self._check_pac_auth()
 
-        try:
-            # Stop the auth reader thread so it doesn't compete for stdout
-            if hasattr(self, '_auth_stop_reader'):
-                self._auth_stop_reader.set()
-                time.sleep(0.5)  # Give reader thread time to exit
-
-            # Try health check to see if connected
-            with self.process_lock:
-                # Drain any leftover output from auth
-                import select
-                while select.select([self.process.stdout], [], [], 0.1)[0]:
-                    self.process.stdout.readline()
-
-                # First sync with a marker
-                self._send_raw("Write-Host 'sync'", timeout=5)
-
-                # Now check health
-                health_output = self._send_raw(module_config["health_cmd"], timeout=30)
-                logger.info(f"[{self.session_id}] Health check: {health_output[:200]}")
-
-                if re.search(module_config["health_pattern"], health_output):
-                    self.state = "authenticated"
-                    self.device_code = None
-                    self.auth_initiated_by = None
-
-                    # Extract authenticated identity from health output
-                    try:
-                        health_data = json.loads(health_output.strip())
-                        if self.module == "exo":
-                            self.authenticated_as = health_data.get("UserPrincipalName") or health_data.get("Organization")
-                        elif self.module == "azure":
-                            account = health_data.get("Account", {})
-                            self.authenticated_as = account.get("Id") if isinstance(account, dict) else str(account)
-                        elif self.module == "teams":
-                            self.authenticated_as = health_data.get("DisplayName")
-                        elif self.module == "pnp":
-                            self.authenticated_as = health_data.get("Url")
-                    except (json.JSONDecodeError, AttributeError):
-                        pass  # Health output may not be clean JSON
-
-                    logger.info(f"[{self.session_id}] Auth completed! Identity: {self.authenticated_as}")
-                    return True
-
-        except Exception as e:
-            logger.debug(f"[{self.session_id}] Auth check: {e}")
-
-        return False
+        is_done = self.state == "authenticated"
+        logger.info(f"[{self.session_id}] check_auth_complete: state={self.state}, authenticated={is_done}")
+        return is_done
 
     def _check_pac_auth(self) -> bool:
         """Check if PAC auth completed."""
@@ -453,29 +557,44 @@ class Session:
     def run_command(self, command: str, caller_id: str, timeout: int = COMMAND_TIMEOUT) -> Dict[str, Any]:
         """Execute a command."""
         module_config = MODULES.get(self.module)
+        logger.info(f"[{self.session_id}] run_command called, state={self.state}, caller={caller_id}")
 
         # Check auth state
         if self.state == "auth_pending":
-            if self.auth_initiated_by == caller_id:
-                if self.check_auth_complete():
-                    pass  # Continue to execute
-                else:
-                    return {
-                        "status": "auth_required",
-                        "device_code": self.device_code,
-                        "auth_url": "https://microsoft.com/devicelogin",
-                        "message": "Complete device code auth, then retry",
-                    }
+            auth_age = time.time() - self.auth_started_at
+            logger.info(f"[{self.session_id}] State is auth_pending, age={int(auth_age)}s, device_code={self.device_code}")
+
+            # Check if auth has gone stale (device code expired after 15 min)
+            if auth_age > 900:
+                logger.warning(f"[{self.session_id}] Auth stale after {int(auth_age)}s, resetting session")
+                self.stop()
+                self.start_process()
+                return self.initiate_auth(caller_id)
+
+            # Any caller can check if auth completed (stateless MCP = new caller_id each time)
+            logger.info(f"[{self.session_id}] Checking if auth completed...")
+            if self.check_auth_complete():
+                logger.info(f"[{self.session_id}] Auth check passed, proceeding to execute command")
             else:
+                logger.info(f"[{self.session_id}] Auth check failed, returning auth_required")
                 return {
-                    "status": "auth_in_progress",
-                    "message": "Auth in progress by another caller, retry shortly"
+                    "status": "auth_required",
+                    "device_code": self.device_code,
+                    "auth_url": "https://microsoft.com/devicelogin",
+                    "message": "Complete device code auth, then retry",
                 }
 
         if self.state != "authenticated":
+            logger.info(f"[{self.session_id}] State is {self.state}, initiating auth")
             return self.initiate_auth(caller_id)
 
+        # Guardrails — check command before executing
+        blocked = check_command_guardrails(command, self.session_id)
+        if blocked:
+            return {"status": "error", "error": blocked}
+
         # Execute command
+        logger.info(f"[{self.session_id}] Executing command (state=authenticated)")
         with self.process_lock:
             try:
                 if module_config.get("use_pac"):
@@ -488,12 +607,22 @@ class Session:
                 response = {"status": "success", "output": output}
                 if self.authenticated_as:
                     response["authenticated_as"] = self.authenticated_as
+
+                # Log output content — always preview, flag errors at WARNING
+                output_preview = output[:500].replace('\n', ' | ') if output else '(empty)'
+                error_patterns = re.search(r'(AADSTS\d+|error|exception|unauthorized|forbidden|access.denied)', output, re.IGNORECASE)
+                if error_patterns:
+                    logger.warning(f"[{self.session_id}] Command output contains error pattern [{error_patterns.group(0)}]: {output_preview}")
+                else:
+                    logger.info(f"[{self.session_id}] Command succeeded ({len(output)} chars): {output_preview}")
                 return response
 
             except TimeoutError as e:
+                logger.error(f"[{self.session_id}] Command timed out: {e}")
                 return {"status": "error", "error": f"Timeout: {e}"}
             except Exception as e:
                 self.last_error = str(e)
+                logger.error(f"[{self.session_id}] Command failed: {e}")
                 return {"status": "error", "error": str(e)}
 
     def stop(self):
@@ -513,6 +642,93 @@ class SessionPool:
     def __init__(self):
         self.sessions: Dict[str, Session] = {}
         self.lock = threading.Lock()
+        self._restore_sessions()
+
+    def save_state(self):
+        """Persist session metadata to disk so we can restore after restart."""
+        with self.lock:
+            state = []
+            for session in self.sessions.values():
+                if session.state == "authenticated":
+                    state.append({
+                        "connection_name": session.connection_name,
+                        "module": session.module,
+                        "tenant": session.tenant,
+                        "app_id": session.app_id,
+                        "authenticated_as": session.authenticated_as,
+                        "saved_at": time.time(),
+                    })
+        try:
+            with open(STATE_FILE, 'w') as f:
+                json.dump(state, f, indent=2)
+            logger.info(f"Saved {len(state)} session(s) to {STATE_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to save session state: {e}")
+
+    def _restore_sessions(self):
+        """Restore sessions from saved state on startup.
+
+        PowerShell module tokens are persisted in Docker volumes (.Azure, .config, .local).
+        We re-launch pwsh and run a health check — if the cached token is still valid,
+        the session comes back authenticated without needing a device code.
+        """
+        if not os.path.exists(STATE_FILE):
+            return
+
+        try:
+            with open(STATE_FILE) as f:
+                saved = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not load saved state: {e}")
+            return
+
+        if not saved:
+            return
+
+        logger.info(f"Restoring {len(saved)} session(s) from saved state...")
+
+        for entry in saved:
+            conn_name = entry["connection_name"]
+            module = entry["module"]
+            session_id = f"{conn_name}/{module}"
+
+            # Skip if module not configured
+            module_config = MODULES.get(module)
+            if not module_config or module_config.get("use_pac"):
+                logger.info(f"[{session_id}] Skipping restore — module not supported for restore")
+                continue
+
+            try:
+                session = Session(
+                    tenant=entry["tenant"],
+                    module=module,
+                    connection_name=conn_name,
+                    app_id=entry["app_id"],
+                )
+
+                if not session.start_process():
+                    logger.warning(f"[{session_id}] Restore failed — could not start pwsh")
+                    continue
+
+                # Run health check — if cached tokens are valid, this succeeds
+                logger.info(f"[{session_id}] Verifying cached auth tokens...")
+                try:
+                    health_output = session._send_raw(module_config["health_cmd"], timeout=30)
+                    if re.search(module_config["health_pattern"], health_output):
+                        session.state = "authenticated"
+                        session.authenticated_as = entry.get("authenticated_as")
+                        session.on_auth_complete = self.save_state
+                        self.sessions[session_id] = session
+                        logger.info(f"[{session_id}] Restored! Identity: {session.authenticated_as}")
+                    else:
+                        session.stop()
+                        logger.info(f"[{session_id}] Cached tokens expired — will re-auth on next use")
+                except Exception as e:
+                    session.stop()
+                    logger.info(f"[{session_id}] Restore health check failed: {e} — will re-auth on next use")
+
+            except Exception as e:
+                logger.warning(f"[{session_id}] Restore error: {e}")
 
     def get_or_create_session(self, connection_name: str, module: str) -> Session:
         """Get or create a session."""
@@ -540,6 +756,7 @@ class SessionPool:
                     connection_name=connection_name,
                     app_id=app_id,
                 )
+                session.on_auth_complete = self.save_state
                 session.start_process()
                 self.sessions[session_id] = session
                 logger.info(f"Created session: {session_id}")
@@ -568,7 +785,11 @@ class SessionPool:
                     reset.append(session_id)
             for sid in to_remove:
                 del self.sessions[sid]
-            return {"reset": reset, "count": len(reset)}
+
+        # Save state outside lock to avoid deadlock
+        if reset:
+            self.save_state()
+        return {"reset": reset, "count": len(reset)}
 
     def get_status(self) -> Dict[str, Any]:
         """Get status of all sessions."""
@@ -611,7 +832,23 @@ class SessionKeepalive:
     def _run(self):
         while self.running:
             time.sleep(self.interval)
+            self._reap_stale_sessions()
             self._ping_sessions()
+
+    def _reap_stale_sessions(self):
+        """Clean up sessions stuck in auth_pending or error for too long."""
+        with self.pool.lock:
+            stale = []
+            for session_id, session in self.pool.sessions.items():
+                if session.state in ("auth_pending", "error"):
+                    auth_age = time.time() - getattr(session, 'auth_started_at', time.time())
+                    if auth_age > 900:  # 15 min = device code expiry
+                        stale.append(session_id)
+
+            for sid in stale:
+                session = self.pool.sessions.pop(sid)
+                session.stop()
+                logger.info(f"[{sid}] Reaped stale session (state={session.state})")
 
     def _ping_sessions(self):
         with self.pool.lock:
@@ -689,8 +926,11 @@ def run_command():
     else:
         connection = data.get("connection")
 
+    logger.info(f"[HTTP] POST /run connection={connection} module={module} caller={caller_id} command={command[:60] if command else 'None'}")
+
     if not all([connection, module, command]):
         metrics.record_request(time.time() - start, error=True)
+        logger.warning(f"[HTTP] POST /run rejected: missing params (connection={connection}, module={module}, command={'yes' if command else 'None'})")
         return jsonify({"status": "error", "error": "Missing connection, module, or command"}), 400
 
     # In single-connection mode, reject requests for other connections
@@ -703,11 +943,16 @@ def run_command():
         return jsonify({"status": "error", "error": f"Unknown module: {module}"}), 400
 
     result = pool.run_command(connection, module, command, caller_id)
+    elapsed = time.time() - start
     is_error = result.get("status") == "error"
     is_auth = result.get("status") == "auth_required"
-    metrics.record_request(time.time() - start, error=is_error)
+    metrics.record_request(elapsed, error=is_error)
     if is_auth:
         metrics.record_auth()
+    log_level = "warning" if is_error else "info"
+    getattr(logger, log_level)(f"[HTTP] POST /run connection={connection} module={module} -> status={result.get('status')} elapsed={elapsed:.1f}s")
+    if is_error:
+        logger.warning(f"[HTTP] POST /run error detail: {result.get('error', 'unknown')}")
     return jsonify(result)
 
 
