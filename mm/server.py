@@ -447,20 +447,12 @@ def _strip_email_signature(body, endpoint, conn_config=None):
     return body
 
 
-def _normalize_subject(subject: str) -> str:
-    """Strip Re:/Fwd: prefixes and whitespace for comparison."""
-    s = re.sub(r'^(re|fw|fwd)\s*:\s*', '', subject.strip(), flags=re.IGNORECASE)
-    return s.strip().lower()
+def _check_existing_threads(access_token, endpoint, method, body, base_url):
+    """Check for existing threads before sendMail. Returns (endpoint, method, body, note).
 
-
-def _intercept_sendmail(access_token, endpoint, method, body, base_url):
-    """Auto-detect threads for sendMail. Returns (endpoint, method, body, note).
-
-    When POST /me/sendMail is detected:
-    1. Extract primary recipient and subject
-    2. Search for existing threads with that recipient
-    3. If a thread with matching subject exists → convert to reply
-    4. Otherwise → proceed with original sendMail (new topic = new email)
+    Does NOT auto-convert. Just searches for existing threads and returns
+    a note so the AI can confirm with the user whether to reply or send new.
+    The email is always sent as-is — the note is informational only.
     """
     if method.upper() != "POST" or "sendMail" not in endpoint:
         return endpoint, method, body, None
@@ -476,38 +468,31 @@ def _intercept_sendmail(access_token, endpoint, method, body, base_url):
     if not email:
         return endpoint, method, body, None
 
-    new_subject = msg.get("subject", "")
-    if not new_subject:
-        return endpoint, method, body, None  # no subject = can't match threads
-
     # Search for recent messages with this recipient
     search_endpoint = (
         f'/me/messages?$search="to:{email} OR from:{email}"'
-        f'&$top=10&$orderby=receivedDateTime desc'
-        f'&$select=id,subject,conversationId,receivedDateTime,from'
+        f'&$top=5&$orderby=receivedDateTime desc'
+        f'&$select=id,subject,receivedDateTime'
     )
     search = _make_graph_request(access_token, search_endpoint, base_url=base_url)
 
-    if search["status"] != "success":
-        return endpoint, method, body, None  # search failed, proceed with sendMail
+    if search["status"] != "success" or not search["data"].get("value"):
+        return endpoint, method, body, None  # no history or search failed, send as-is
 
-    messages = search["data"].get("value", [])
-    if not messages:
-        return endpoint, method, body, "No existing thread found — sending as new email."
+    # Build a summary of existing threads for the AI to present
+    threads = search["data"]["value"]
+    thread_list = "\n".join(
+        f'  - "{t.get("subject", "(no subject)")}" ({t.get("receivedDateTime", "")[:10]})'
+        for t in threads
+    )
+    note = (
+        f"WARNING: Sending new email to {email}, but existing threads found:\n"
+        f"{thread_list}\n"
+        f"If this should be a reply to one of these threads, cancel and use "
+        f"POST /me/messages/{{messageId}}/reply instead."
+    )
 
-    # Match by subject — only reply if same topic exists
-    normalized_new = _normalize_subject(new_subject)
-    for msg_hit in messages:
-        existing_subject = msg_hit.get("subject", "")
-        if _normalize_subject(existing_subject) == normalized_new:
-            reply_id = msg_hit["id"]
-            content = msg.get("body", {}).get("content", "")
-            new_endpoint = f"/me/messages/{reply_id}/reply"
-            new_body = {"comment": content}
-            note = f'Found existing thread: "{existing_subject}" — replying instead of new email.'
-            return new_endpoint, "POST", new_body, note
-
-    return endpoint, method, body, f"New topic — sending as new email (no thread matching \"{new_subject}\")."
+    return endpoint, method, body, note
 
 
 # === Session Pool (PowerShell) ===
@@ -792,7 +777,7 @@ def _handle_graph_request(arguments: dict) -> list:
 
     # Email interceptors: auto-thread detection + signature stripping
     note = None
-    endpoint, method, body, note = _intercept_sendmail(
+    endpoint, method, body, note = _check_existing_threads(
         access_token, endpoint, method, body, base_url,
     )
     if body:
