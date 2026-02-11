@@ -447,14 +447,20 @@ def _strip_email_signature(body, endpoint, conn_config=None):
     return body
 
 
+def _normalize_subject(subject: str) -> str:
+    """Strip Re:/Fwd: prefixes and whitespace for comparison."""
+    s = re.sub(r'^(re|fw|fwd)\s*:\s*', '', subject.strip(), flags=re.IGNORECASE)
+    return s.strip().lower()
+
+
 def _intercept_sendmail(access_token, endpoint, method, body, base_url):
     """Auto-detect threads for sendMail. Returns (endpoint, method, body, note).
 
     When POST /me/sendMail is detected:
-    1. Extract primary recipient email
+    1. Extract primary recipient and subject
     2. Search for existing threads with that recipient
-    3. If found → convert to POST /me/messages/{id}/reply
-    4. If not found → proceed with original sendMail
+    3. If a thread with matching subject exists → convert to reply
+    4. Otherwise → proceed with original sendMail (new topic = new email)
     """
     if method.upper() != "POST" or "sendMail" not in endpoint:
         return endpoint, method, body, None
@@ -470,10 +476,14 @@ def _intercept_sendmail(access_token, endpoint, method, body, base_url):
     if not email:
         return endpoint, method, body, None
 
-    # Search for existing thread with this recipient
+    new_subject = msg.get("subject", "")
+    if not new_subject:
+        return endpoint, method, body, None  # no subject = can't match threads
+
+    # Search for recent messages with this recipient
     search_endpoint = (
         f'/me/messages?$search="to:{email} OR from:{email}"'
-        f'&$top=5&$orderby=receivedDateTime desc'
+        f'&$top=10&$orderby=receivedDateTime desc'
         f'&$select=id,subject,conversationId,receivedDateTime,from'
     )
     search = _make_graph_request(access_token, search_endpoint, base_url=base_url)
@@ -485,17 +495,19 @@ def _intercept_sendmail(access_token, endpoint, method, body, base_url):
     if not messages:
         return endpoint, method, body, "No existing thread found — sending as new email."
 
-    # Found a thread — convert to reply
-    latest = messages[0]
-    reply_id = latest["id"]
-    subject = latest.get("subject", "(unknown)")
+    # Match by subject — only reply if same topic exists
+    normalized_new = _normalize_subject(new_subject)
+    for msg_hit in messages:
+        existing_subject = msg_hit.get("subject", "")
+        if _normalize_subject(existing_subject) == normalized_new:
+            reply_id = msg_hit["id"]
+            content = msg.get("body", {}).get("content", "")
+            new_endpoint = f"/me/messages/{reply_id}/reply"
+            new_body = {"comment": content}
+            note = f'Found existing thread: "{existing_subject}" — replying instead of new email.'
+            return new_endpoint, "POST", new_body, note
 
-    content = msg.get("body", {}).get("content", "")
-    new_endpoint = f"/me/messages/{reply_id}/reply"
-    new_body = {"comment": content}
-    note = f'Found existing thread: "{subject}" — replying instead of new email.'
-
-    return new_endpoint, "POST", new_body, note
+    return endpoint, method, body, f"New topic — sending as new email (no thread matching \"{new_subject}\")."
 
 
 # === Session Pool (PowerShell) ===
