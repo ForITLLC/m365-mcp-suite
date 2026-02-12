@@ -8,7 +8,7 @@ export class MicrosoftOAuthProvider extends ProxyOAuthServerProvider {
 
   constructor(authManager: AuthManager) {
     const tenantId = process.env.MS365_MCP_TENANT_ID || 'common';
-    const clientId = process.env.MS365_MCP_CLIENT_ID || '084a3e9f-a9f4-43f7-89f9-d229cf97853e';
+    const clientId = process.env.MS365_MCP_CLIENT_ID || 'your-azure-ad-app-client-id';
 
     super({
       endpoints: {

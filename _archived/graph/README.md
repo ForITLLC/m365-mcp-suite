@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="logo.png" alt="ForIT Logo" width="350">
+  <img src="logo.png" alt="YourOrg Logo" width="350">
 </p>
 
-# ForIT Microsoft Graph
+# YourOrg Microsoft Graph
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -40,7 +40,7 @@ list-calendar-events, create-calendar-event, get-calendar-event,
 list-users, get-user, get-current-user, list-calendars...
 ```
 
-**After (ForIT, 1 tool):**
+**After (YourOrg, 1 tool):**
 ```json
 { "endpoint": "/me/messages", "queryParams": { "$top": "10" } }
 ```
@@ -70,7 +70,7 @@ Query both tenants in the same conversation. No `select-account` dance required.
 ## Installation
 
 ```bash
-npm install -g @foritllc/microsoft-graph
+npm install -g @example/microsoft-graph
 ```
 
 ## Quick Start
@@ -82,7 +82,7 @@ npm install -g @foritllc/microsoft-graph
   "mcpServers": {
     "graph": {
       "command": "npx",
-      "args": ["-y", "@foritllc/microsoft-graph"]
+      "args": ["-y", "@example/microsoft-graph"]
     }
   }
 }
@@ -102,13 +102,13 @@ The device code is displayed prominently in a box format for visibility.
 
 ```bash
 # First tenant (device code displayed clearly)
-npx @foritllc/microsoft-graph --login
+npx @example/microsoft-graph --login
 
 # Second tenant (adds to cache)
-npx @foritllc/microsoft-graph --login
+npx @example/microsoft-graph --login
 
 # See all accounts
-npx @foritllc/microsoft-graph --list-accounts
+npx @example/microsoft-graph --list-accounts
 ```
 
 ### Multi-Account Requirement
@@ -197,9 +197,9 @@ This MCP complements [PnP CLI for Microsoft 365](https://pnp.github.io/cli-micro
 
 | Use Case | Tool |
 |----------|------|
-| Raw Graph API calls | **ForIT Microsoft Graph** |
+| Raw Graph API calls | **YourOrg Microsoft Graph** |
 | SharePoint, Teams, Power Platform | PnP CLI |
-| Multi-tenant management | **ForIT Microsoft Graph** |
+| Multi-tenant management | **YourOrg Microsoft Graph** |
 | Specialized admin commands | PnP CLI |
 
 ---

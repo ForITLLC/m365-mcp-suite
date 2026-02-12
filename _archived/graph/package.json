@@ -1,5 +1,5 @@
 {
-  "name": "@foritllc/microsoft-graph",
+  "name": "@example/microsoft-graph",
   "version": "1.2.1",
   "description": "Lean MCP for Microsoft Graph API with multi-tenant account management. 7 tools instead of 37. Fork of @softeria/ms-365-mcp-server.",
   "type": "module",
@@ -70,10 +70,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ForITLLC/forit-microsoft-graph.git"
+    "url": "https://github.com/YourOrg/microsoft-graph.git"
   },
-  "homepage": "https://github.com/ForITLLC/forit-microsoft-graph#readme",
+  "homepage": "https://github.com/YourOrg/forit-microsoft-graph#readme",
   "bugs": {
-    "url": "https://github.com/ForITLLC/forit-microsoft-graph/issues"
+    "url": "https://github.com/YourOrg/forit-microsoft-graph/issues"
   }
 }

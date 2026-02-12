@@ -672,6 +672,15 @@ class Session:
                 logger.warning(f"[{self.session_id}] Command output contains error pattern [{error_patterns.group(0)}]: {output_preview}")
             else:
                 logger.info(f"[{self.session_id}] Command succeeded ({len(output)} chars): {output_preview}")
+
+            # Fire-and-forget GC to reduce memory pressure between commands
+            try:
+                if self.process and self.process.poll() is None and not module_config.get("use_pac"):
+                    self.process.stdin.write("[System.GC]::Collect()\n")
+                    self.process.stdin.flush()
+            except Exception:
+                pass  # Non-critical — don't fail the response over GC
+
             return response
 
         except TimeoutError as e:

@@ -98,7 +98,7 @@ class Session:
 
     tenant: str
     module: str
-    sharepoint_tenant: Optional[str] = None  # SharePoint tenant prefix (e.g., "foritllc" for foritllc.sharepoint.com)
+    sharepoint_tenant: Optional[str] = None  # SharePoint tenant prefix (e.g., "contoso" for contoso.sharepoint.com)
     conversation_id: Optional[str] = None  # MCP conversation that created this session
     process: Optional[subprocess.Popen] = None
     authenticated: bool = False
@@ -275,7 +275,7 @@ class Session:
             # PAC CLI doesn't need tenant in connect command
             cmd = config["connect_cmd"]
         elif self.module == "pnp":
-            # PnP needs SharePoint tenant prefix (e.g., "foritllc" for foritllc.sharepoint.com)
+            # PnP needs SharePoint tenant prefix (e.g., "contoso" for contoso.sharepoint.com)
             if self.sharepoint_tenant:
                 tenant_part = self.sharepoint_tenant
             elif "." in self.tenant:

@@ -231,7 +231,7 @@ class MicrosoftGraphServer {
       app.get('/authorize', async (req, res) => {
         const url = new URL(req.url!, `${req.protocol}://${req.get('host')}`);
         const tenantId = process.env.MS365_MCP_TENANT_ID || 'common';
-        const clientId = process.env.MS365_MCP_CLIENT_ID || '084a3e9f-a9f4-43f7-89f9-d229cf97853e';
+        const clientId = process.env.MS365_MCP_CLIENT_ID || 'your-azure-ad-app-client-id';
         const microsoftAuthUrl = new URL(
           `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`
         );
@@ -304,7 +304,7 @@ class MicrosoftGraphServer {
           if (body.grant_type === 'authorization_code') {
             const tenantId = process.env.MS365_MCP_TENANT_ID || 'common';
             const clientId =
-              process.env.MS365_MCP_CLIENT_ID || '084a3e9f-a9f4-43f7-89f9-d229cf97853e';
+              process.env.MS365_MCP_CLIENT_ID || 'your-azure-ad-app-client-id';
             const clientSecret = process.env.MS365_MCP_CLIENT_SECRET;
 
             // Log whether using public or confidential client
@@ -326,7 +326,7 @@ class MicrosoftGraphServer {
           } else if (body.grant_type === 'refresh_token') {
             const tenantId = process.env.MS365_MCP_TENANT_ID || 'common';
             const clientId =
-              process.env.MS365_MCP_CLIENT_ID || '084a3e9f-a9f4-43f7-89f9-d229cf97853e';
+              process.env.MS365_MCP_CLIENT_ID || 'your-azure-ad-app-client-id';
             const clientSecret = process.env.MS365_MCP_CLIENT_SECRET;
 
             // Log whether using public or confidential client

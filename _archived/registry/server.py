@@ -135,7 +135,7 @@ async def list_tools():
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Connection name (e.g., 'ForIT', 'ClientX')"},
-                    "tenant": {"type": "string", "description": "Tenant domain (e.g., 'forit.io', 'clientx.onmicrosoft.com')"},
+                    "tenant": {"type": "string", "description": "Tenant domain (e.g., 'contoso.com', 'fabrikam.onmicrosoft.com')"},
                     "appId": {"type": "string", "description": "Azure AD app registration ID (GUID). REQUIRED - no default exists."},
                     "description": {"type": "string", "description": "REQUIRED: What this app/account combination is used for"},
                     "mcps": {
@@ -295,7 +295,7 @@ async def _call_tool_impl(name: str, arguments: dict):
         if not is_valid_guid(app_id):
             return [TextContent(type="text", text=json.dumps({
                 "error": f"Invalid appId format: {app_id}",
-                "hint": "appId must be a valid GUID (e.g., '9bc3ab49-b65d-410a-85ad-de819febfddc')"
+                "hint": "appId must be a valid GUID (e.g., 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx')"
             }, indent=2))]
 
         # Validate MCPs

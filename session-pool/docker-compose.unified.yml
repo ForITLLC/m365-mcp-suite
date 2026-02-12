@@ -32,7 +32,7 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 4G
+          memory: 6G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5200/health"]
       interval: 60s
