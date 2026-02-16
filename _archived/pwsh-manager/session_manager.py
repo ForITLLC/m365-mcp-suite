@@ -61,8 +61,8 @@ MODULES = {
     },
     "pnp": {
         "name": "PnP.PowerShell",
-        # PnP v3.x requires ClientId for DeviceLogin - using ForIT's registered PnP PowerShell App
-        "connect_cmd": 'Connect-PnPOnline -Url "https://{tenant}.sharepoint.com" -DeviceLogin -ClientId "9f457af8-dd93-4311-aedc-4ab5c663c493"',
+        # PnP v3.x requires ClientId for DeviceLogin - use your own app registration
+        "connect_cmd": 'Connect-PnPOnline -Url "https://{tenant}.sharepoint.com" -DeviceLogin -ClientId "{appId}"',
         "disconnect_cmd": "Disconnect-PnPOnline",
         "check_cmd": "Get-PnPConnection",
         "check_pattern": r"(Url|ConnectionType)",

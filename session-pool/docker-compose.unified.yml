@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     environment:
       # Cap .NET GC heap per pwsh process to 384MB — prevents any single
-      # session from ballooning unbounded (ForIT-GA/azure was hitting 330MB+)
+      # session from ballooning unbounded (azure sessions were hitting 330MB+)
       - DOTNET_GCHeapHardLimit=0x18000000
     ports:
       - "5200:5200"

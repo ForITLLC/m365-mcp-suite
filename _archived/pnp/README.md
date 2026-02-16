@@ -76,7 +76,7 @@ The MCP includes an `m365_login` tool that displays device codes prominently for
 When multiple M365 connections exist, you **must** specify which connection to use:
 
 ```
-m365_run_command(command: "m365 status", connectionName: "ForIT")
+m365_run_command(command: "m365 status", connectionName: "Contoso")
 m365_run_command(command: "m365 status", connectionName: "Personal")
 ```
 

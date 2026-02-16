@@ -66,7 +66,7 @@ server.registerTool(
         title: 'Validate a connection',
         description: 'Checks if a specific connection is properly configured and logged in.',
         inputSchema: {
-            connectionName: z.string().describe('Connection name from ~/.m365-connections.json (e.g., "ForIT", "Personal")')
+            connectionName: z.string().describe('Connection name from ~/.m365-connections.json (e.g., "Contoso", "Personal")')
         }
     },
     async ({ connectionName }) => ({
@@ -81,7 +81,7 @@ server.registerTool(
         title: 'Login to M365',
         description: 'Authenticates to M365 using device code flow. Connection must be configured in ~/.m365-connections.json first.',
         inputSchema: {
-            connectionName: z.string().describe('Connection name from ~/.m365-connections.json (e.g., "ForIT", "Personal")')
+            connectionName: z.string().describe('Connection name from ~/.m365-connections.json (e.g., "Contoso", "Personal")')
         }
     },
     async ({ connectionName }) => {
@@ -108,7 +108,7 @@ server.registerTool(
         description: 'Executes a CLI for M365 command. connectionName is REQUIRED - there are no defaults.',
         inputSchema: {
             command: z.string().describe('The m365 command to run (e.g., "m365 spo site list")'),
-            connectionName: z.string().describe('REQUIRED: Connection name (e.g., "ForIT"). Use m365_list_connections to see available.')
+            connectionName: z.string().describe('REQUIRED: Connection name (e.g., "Contoso"). Use m365_list_connections to see available.')
         }
     },
     async ({ command, connectionName }) => {
