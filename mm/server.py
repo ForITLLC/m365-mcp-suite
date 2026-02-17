@@ -58,6 +58,17 @@ GRAPH_SCOPES = [
 # Sentinel: guard hook blocked execution (body can legitimately be None on some endpoints)
 _GRAPH_BLOCKED = object()
 
+# Send guards: env var global toggle, per-connection override via "skipSendGuards" in registry
+_SEND_GUARDS_DEFAULT = os.getenv("MM_SEND_GUARDS", "true").lower() != "false"
+
+
+def _send_guards_enabled(conn_config: dict) -> bool:
+    """Check if send guards are enabled. Per-connection overrides global."""
+    per_conn = conn_config.get("skipSendGuards")
+    if per_conn is not None:
+        return not per_conn  # skipSendGuards: true means guards disabled
+    return _SEND_GUARDS_DEFAULT
+
 # Email signature patterns — CodeTwo adds signatures on most accounts.
 # Connections with "skipSignatureStrip": true in the registry are excluded.
 # Strip these before sending so CodeTwo doesn't double-sign.
@@ -555,7 +566,7 @@ def _extract_ps_send_preview(command):
 
 def _hook_guard_email_send(endpoint, method, body, conn_config, confirmed=False):
     """Block email sends until confirmed. Returns draft preview on first call."""
-    if confirmed:
+    if confirmed or not _send_guards_enabled(conn_config):
         return body, None
     preview = _extract_email_preview(body, endpoint)
     return _GRAPH_BLOCKED, preview
@@ -563,7 +574,7 @@ def _hook_guard_email_send(endpoint, method, body, conn_config, confirmed=False)
 
 def _hook_guard_teams_message(endpoint, method, body, conn_config, confirmed=False):
     """Block Teams message sends until confirmed. Returns draft preview on first call."""
-    if confirmed:
+    if confirmed or not _send_guards_enabled(conn_config):
         return body, None
     preview = _extract_teams_preview(body, endpoint)
     return _GRAPH_BLOCKED, preview
@@ -571,7 +582,7 @@ def _hook_guard_teams_message(endpoint, method, body, conn_config, confirmed=Fal
 
 def _hook_guard_ps_send(command, module, conn_config, confirmed=False):
     """Block PowerShell send commands until confirmed. Returns command preview on first call."""
-    if confirmed:
+    if confirmed or not _send_guards_enabled(conn_config):
         return command, None
     preview = _extract_ps_send_preview(command)
     return None, preview

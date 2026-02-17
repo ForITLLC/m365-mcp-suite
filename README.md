@@ -237,6 +237,27 @@ Email and Teams message sends are **blocked by default**. When an AI assistant t
 - `Send-MailMessage`, `Send-MgUserMail`
 - `New-MgChatMessage`, `New-MgTeamChannelMessage`, `Submit-PnPTeamsChannelMessage`
 
+**Disabling send guards:**
+
+| Method | Scope | How |
+|--------|-------|-----|
+| Per-connection | Single connection | Add `"skipSendGuards": true` to the connection in `~/.m365-connections.json` |
+| Global | All connections | Set env var `MM_SEND_GUARDS=false` |
+
+Per-connection overrides the global setting. Example:
+
+```json
+{
+  "connections": {
+    "Contoso-Automation": {
+      "appId": "...",
+      "skipSendGuards": true,
+      "description": "Automated sends, no confirmation needed"
+    }
+  }
+}
+```
+
 ## Session Pool
 
 The session pool manages PowerShell processes with native device code authentication.

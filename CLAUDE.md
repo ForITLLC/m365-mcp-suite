@@ -61,6 +61,11 @@ draft preview. To actually send, re-call with `confirmed: true`.
 - `Send-MailMessage`, `Send-MgUserMail`
 - `New-MgChatMessage`, `New-MgTeamChannelMessage`, `Submit-PnPTeamsChannelMessage`
 
+**Disabling guards:**
+- Per-connection: `"skipSendGuards": true` in `~/.m365-connections.json`
+- Global: env var `MM_SEND_GUARDS=false`
+- Per-connection overrides global
+
 ### `GRAPH_HOOKS` — Graph API request hooks
 - `(match_fn, handler_fn)` pairs, all matching hooks fire in order
 - Handler: `(endpoint, method, body, conn_config, confirmed) -> (body, note)`
